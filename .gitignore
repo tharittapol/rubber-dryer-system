@@ -1,0 +1,69 @@
+# -------------------------
+# OS / Editor
+# -------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# -------------------------
+# Environment / Secrets
+# -------------------------
+.env
+.env.*
+!.env.example
+
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+ENV/
+env/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# -------------------------
+# Logs / Runtime
+# -------------------------
+*.log
+logs/
+tmp/
+*.pid
+
+# -------------------------
+# Docker / Compose
+# -------------------------
+**/.docker/
+docker-compose.override.yml
+
+# Accidentally create local data dirs
+data/
+db_data/
+mosquitto_data/
+timescale_data/
+
+# -------------------------
+# Node
+# -------------------------
+node_modules/
+dist/
+build/
+
+# -------------------------
+# Misc
+# -------------------------
+*.bak
+*.orig

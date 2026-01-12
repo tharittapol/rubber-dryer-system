@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ack.schema.json",
+  "type": "object",
+  "required": ["ts", "cmd_id", "status"],
+  "properties": {
+    "ts": { "type": "string", "format": "date-time" },
+    "cmd_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["accepted", "rejected", "done"] },
+    "detail": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

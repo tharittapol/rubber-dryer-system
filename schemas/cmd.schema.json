@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cmd.schema.json",
+  "type": "object",
+  "required": ["ts", "cmd_id", "type"],
+  "properties": {
+    "ts": { "type": "string", "format": "date-time" },
+    "cmd_id": { "type": "string", "minLength": 8 },
+    "type": { "type": "string", "enum": ["start", "stop", "set_profile"] },
+    "profile": {
+      "type": ["object", "null"],
+      "properties": {
+        "setpoint_c": { "type": "number" },
+        "duration_s": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

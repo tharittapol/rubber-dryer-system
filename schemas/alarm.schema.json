@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alarm.schema.json",
+  "type": "object",
+  "required": ["ts", "cmd_id", "code", "level", "message"],
+  "properties": {
+    "ts": { "type": "string", "format": "date-time" },
+    "cmd_id": { "type": ["string", "null"] },
+    "code": { "type": "string" },
+    "level": { "type": "string", "enum": ["INFO", "WARN", "CRITICAL"] },
+    "message": { "type": "string" }
+  },
+  "additionalProperties": false
+}

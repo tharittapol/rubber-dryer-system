@@ -1,0 +1,83 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: dryer-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:rw
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_pub -h 127.0.0.1 -p 1883 -t health/ping -m ok -q 1 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  emqx:
+    image: emqx/emqx:5.8.9
+    container_name: dryer-emqx
+    ports:
+      - "1884:1883"     # EMQX's MQTT (to prevent port conflicts with Mosquitto)
+      - "18083:18083"   # Dashboard
+    environment:
+      - EMQX_NAME=dryer_emqx
+      - EMQX_HOST=127.0.0.1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:18083/status >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: dryer-timescale
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  simulator:
+    build:
+      context: ./simulator
+    container_name: dryer-simulator
+    ports:
+      - "8000:8000"
+    environment:
+      - TZ=Asia/Bangkok
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  gateway:
+    build:
+      context: ./gateway
+    container_name: dryer-gateway
+    depends_on:
+      simulator:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    environment:
+      - MOSQUITTO_HOST=${MOSQUITTO_HOST}
+      - MOSQUITTO_PORT=${MOSQUITTO_PORT}
+      - SIMULATOR_BASE_URL=${SIMULATOR_BASE_URL}
+      - POLL_INTERVAL_SEC=${POLL_INTERVAL_SEC}
+      - TZ=Asia/Bangkok
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  timescale_data:
