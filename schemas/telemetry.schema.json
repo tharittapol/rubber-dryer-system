@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "telemetry.schema.json",
+  "type": "object",
+  "required": ["ts", "temp_c", "hum_pct", "dryer_on", "setpoint_c"],
+  "properties": {
+    "ts": { "type": "string", "format": "date-time" },
+    "temp_c": { "type": "number" },
+    "hum_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+    "dryer_on": { "type": "boolean" },
+    "setpoint_c": { "type": "number" }
+  },
+  "additionalProperties": false
+}

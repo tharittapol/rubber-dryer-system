@@ -2,34 +2,49 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Dict, Optional
+from datetime import datetime, timedelta
+from typing import Dict, Optional, List
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 
+def now_dt() -> datetime:
+    return datetime.now().astimezone()
+
+
 def now_iso() -> str:
-    # can also use local timezone in container (TZ=Asia/Bangkok)
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return now_dt().isoformat(timespec="seconds")
 
 
 @dataclass
 class RoomMemory:
-    # Memory map (concept)
-    # D1000.. telemetry
-    # D1100.. profile
-    # M1200.. cmd/state bits
-    D: Dict[int, float] = field(default_factory=dict)
-    M: Dict[int, int] = field(default_factory=dict)
-
-    # Simple variables
+    # Process values
     temp_c: float = 30.0
     hum_pct: float = 60.0
+
+    # Profile
     setpoint_c: float = 50.0
     duration_s: int = 1800
-    running: bool = False
-    last_cmd_id: Optional[str] = None
+
+    # Control / cycle
+    cycle_active: bool = False
+    dryer_on: bool = False
+    cycle_cmd_id: Optional[str] = None
+    cycle_start: Optional[datetime] = None
+    cycle_end: Optional[datetime] = None
+
+    # last cycle meta (for state snapshot)
+    last_cycle: Optional[dict] = None
+
+    # Anti-chatter
+    hysteresis_c: float = 2.0
+    min_on_s: int = 15
+    min_off_s: int = 15
+    last_switch: datetime = field(default_factory=now_dt)
+
+    # One-shot events (gateway will pop)
+    events: List[dict] = field(default_factory=list)
 
 
 class ProfileIn(BaseModel):
@@ -41,7 +56,7 @@ class CmdIn(BaseModel):
     cmd_id: str = Field(..., min_length=8)
 
 
-app = FastAPI(title="PLC Simulator", version="0.1.0")
+app = FastAPI(title="PLC Simulator", version="0.3.0")
 
 ROOMS: Dict[int, RoomMemory] = {i: RoomMemory() for i in range(1, 5)}
 
@@ -51,103 +66,156 @@ def healthz():
     return {"ok": True}
 
 
-@app.get("/api/rooms/{room_id}/telemetry")
-def get_telemetry(room_id: int):
+def get_room(room_id: int) -> RoomMemory:
     room = ROOMS.get(room_id)
     if not room:
         raise HTTPException(404, "room not found")
+    return room
 
-    # D1000 update... (showing mapping concept)
-    room.D[1000] = room.temp_c
-    room.D[1001] = room.hum_pct
-    room.D[1002] = 1.0 if room.running else 0.0
-    room.D[1100] = room.setpoint_c
-    room.D[1101] = float(room.duration_s)
 
+@app.get("/api/rooms/{room_id}/telemetry")
+def get_telemetry(room_id: int):
+    room = get_room(room_id)
     return {
         "ts": now_iso(),
-        "cmd_id": room.last_cmd_id,
         "temp_c": round(room.temp_c, 2),
         "hum_pct": round(room.hum_pct, 2),
-        "running": room.running,
+        "dryer_on": room.dryer_on,
         "setpoint_c": room.setpoint_c,
     }
 
 
+@app.get("/api/rooms/{room_id}/state")
+def get_state(room_id: int):
+    room = get_room(room_id)
+    mode = "RUN" if room.cycle_active else "IDLE"
+    return {
+        "ts": now_iso(),
+        "cmd_id": room.cycle_cmd_id,
+        "mode": mode,
+        "dryer_on": room.dryer_on,
+        "cycle": room.last_cycle
+    }
+
+
+@app.get("/api/rooms/{room_id}/events")
+def pop_events(room_id: int):
+    room = get_room(room_id)
+    ev = room.events[:]
+    room.events.clear()
+    return {"ts": now_iso(), "events": ev}
+
+
 @app.put("/api/rooms/{room_id}/profile")
 def set_profile(room_id: int, body: ProfileIn):
-    room = ROOMS.get(room_id)
-    if not room:
-        raise HTTPException(404, "room not found")
-
+    room = get_room(room_id)
     room.setpoint_c = float(body.setpoint_c)
     room.duration_s = int(body.duration_s)
 
-    # D1100.. profile
-    room.D[1100] = room.setpoint_c
-    room.D[1101] = float(room.duration_s)
+    room.events.append({
+        "ts": now_iso(),
+        "type": "profile_updated",
+        "setpoint_c": room.setpoint_c,
+        "duration_s": room.duration_s
+    })
     return {"ok": True, "ts": now_iso(), "room": room_id}
 
 
 @app.post("/api/rooms/{room_id}/cmd/start")
 def cmd_start(room_id: int, body: CmdIn):
-    room = ROOMS.get(room_id)
-    if not room:
-        raise HTTPException(404, "room not found")
+    room = get_room(room_id)
 
-    room.running = True
-    room.last_cmd_id = body.cmd_id
+    room.cycle_active = True
+    room.dryer_on = True
+    room.cycle_cmd_id = body.cmd_id
+    room.cycle_start = now_dt()
+    room.cycle_end = room.cycle_start + timedelta(seconds=room.duration_s)
+    room.last_switch = now_dt()
 
-    # M1200.. bits
-    room.M[1200] = 1  # RUN bit
+    room.last_cycle = {"status": "RUNNING", "result": None, "reason": None}
+
+    room.events.append({
+        "ts": now_iso(),
+        "type": "cycle_started",
+        "cmd_id": body.cmd_id
+    })
     return {"ok": True, "ts": now_iso(), "room": room_id, "cmd_id": body.cmd_id}
 
 
 @app.post("/api/rooms/{room_id}/cmd/stop")
 def cmd_stop(room_id: int, body: CmdIn):
-    room = ROOMS.get(room_id)
-    if not room:
-        raise HTTPException(404, "room not found")
+    room = get_room(room_id)
 
-    room.running = False
-    room.last_cmd_id = body.cmd_id
-    room.M[1200] = 0
+    room.cycle_active = False
+    room.dryer_on = False
+    room.cycle_cmd_id = None
+    room.cycle_start = None
+    room.cycle_end = None
+    room.last_switch = now_dt()
+
+    room.last_cycle = {"status": "STOPPED", "result": "done", "reason": "stopped_by_command"}
+
+    room.events.append({
+        "ts": now_iso(),
+        "type": "cycle_stopped",
+        "cmd_id": body.cmd_id
+    })
     return {"ok": True, "ts": now_iso(), "room": room_id, "cmd_id": body.cmd_id}
 
 
-@app.get("/api/rooms/{room_id}/memory")
-def get_memory(room_id: int):
-    room = ROOMS.get(room_id)
-    if not room:
-        raise HTTPException(404, "room not found")
-    return {"ts": now_iso(), "D": room.D, "M": room.M}
-
-
 async def process_loop():
-    """
-    Simple process model:
-    - temp: first-order goes to the setpoint if running.
-      if not running → return to ambient
-    - hum: changes with temp roughly + small drift
-    """
     ambient = 30.0
-    tau_run = 40.0     # The less, the faster
-    tau_idle = 80.0
+    tau_heat = 40.0
+    tau_cool = 80.0
 
     while True:
         dt = 1.0
-        for room in ROOMS.values():
-            target = room.setpoint_c if room.running else ambient
-            tau = tau_run if room.running else tau_idle
+        now = now_dt()
 
-            # first-order: x += (target - x)/tau * dt
+        for room in ROOMS.values():
+            # duration complete
+            if room.cycle_active and room.cycle_end and now >= room.cycle_end:
+                done_cmd = room.cycle_cmd_id
+
+                room.cycle_active = False
+                room.dryer_on = False
+                room.cycle_cmd_id = None
+                room.cycle_start = None
+                room.cycle_end = None
+                room.last_switch = now
+
+                room.last_cycle = {"status": "COMPLETED", "result": "success", "reason": "duration_reached"}
+
+                room.events.append({
+                    "ts": now_iso(),
+                    "type": "cycle_complete",
+                    "cmd_id": done_cmd,
+                    "result": "success",
+                    "reason": "duration_reached"
+                })
+
+            # dryer control (anti-chatter + hysteresis)
+            if room.cycle_active:
+                since = (now - room.last_switch).total_seconds()
+
+                # OFF at/above setpoint (respect min_on)
+                if room.dryer_on and room.temp_c >= room.setpoint_c and since >= room.min_on_s:
+                    room.dryer_on = False
+                    room.last_switch = now
+
+                # ON when below setpoint - hysteresis (respect min_off)
+                if (not room.dryer_on) and room.temp_c <= (room.setpoint_c - room.hysteresis_c) and since >= room.min_off_s:
+                    room.dryer_on = True
+                    room.last_switch = now
+
+            # process model
+            target = room.setpoint_c if room.dryer_on else ambient
+            tau = tau_heat if room.dryer_on else tau_cool
             room.temp_c += (target - room.temp_c) / tau * dt
 
-            # Simple humidity: higher temperature -> lower humidity (assuming). 
-            # + small drift
+            # humidity (simple)
             room.hum_pct += (-0.08 * (room.temp_c - ambient)) * 0.02
-            room.hum_pct += 0.05  # drift
-            # clamp
+            room.hum_pct += 0.01 # small drift up
             room.hum_pct = max(0.0, min(100.0, room.hum_pct))
 
         await asyncio.sleep(1.0)

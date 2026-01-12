@@ -2,12 +2,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "state.schema.json",
   "type": "object",
-  "required": ["ts", "cmd_id", "mode", "running"],
+  "required": ["ts", "cmd_id", "mode", "dryer_on"],
   "properties": {
     "ts": { "type": "string", "format": "date-time" },
     "cmd_id": { "type": ["string", "null"] },
-    "mode": { "type": "string", "enum": ["IDLE", "RUN", "STOPPING", "ERROR"] },
-    "running": { "type": "boolean" }
+    "mode": { "type": "string", "enum": ["IDLE", "RUN"] },
+    "dryer_on": { "type": "boolean" },
+    "cycle": {
+      "type": ["object", "null"],
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["RUNNING", "COMPLETED", "STOPPED"] },
+        "result": { "type": ["string", "null"], "enum": ["success", "done", "failed", null] },
+        "reason": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }
