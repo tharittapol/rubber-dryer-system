@@ -14,7 +14,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-mosquitto/config/conf.d/bridge-emqxcloud.conf
+mosquitto/conf.d/bridge-emqxcloud.conf
 
 mosquitto/certs/*.key
 mosquitto/certs/*client*.crt
