@@ -2,12 +2,18 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: dryer-mosquitto
+    env_file: .env
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:rw
+      - ./mosquitto/conf.d:/mosquitto/config/conf.d:ro
+      - ./mosquitto/certs:/mosquitto/config/certs:ro
+      - ./mosquitto/scripts/entrypoint.sh:/entrypoint.sh:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
+      - mosq_data:/mosquitto/data
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_pub -h 127.0.0.1 -p 1883 -t health/ping -m ok -q 1 >/dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -71,13 +77,32 @@ services:
       mosquitto:
         condition: service_started
     environment:
-      - MOSQUITTO_HOST=${MOSQUITTO_HOST}
-      - MOSQUITTO_PORT=${MOSQUITTO_PORT}
+      - MOSQUITTO_HOST=mosquitto
+      - MOSQUITTO_PORT=1883
       - SIMULATOR_BASE_URL=${SIMULATOR_BASE_URL}
       - POLL_INTERVAL_SEC=${POLL_INTERVAL_SEC}
       - TZ=Asia/Bangkok
+      
+  ingest:
+    build:
+      context: ./ingest
+    container_name: dryer-ingest
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    environment:
+      - MOSQUITTO_HOST=mosquitto
+      - MOSQUITTO_PORT=1883
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - PGHOST=timescaledb
+      - PGPORT=5432
 
 volumes:
   mosquitto_data:
   mosquitto_log:
+  mosq_data:
   timescale_data:

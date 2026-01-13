@@ -1,0 +1,26 @@
+connection emqxcloud
+address ${EMQX_HOST}:${EMQX_PORT}
+
+remote_clientid ${EMQX_CLIENTID}
+cleansession false
+
+remote_username ${EMQX_USERNAME}
+remote_password ${EMQX_PASSWORD}
+
+bridge_protocol_version mqttv311
+bridge_tls_version tlsv1.2
+
+bridge_cafile ${MOSQ_CAFILE}
+bridge_insecure false
+
+try_private false
+restart_timeout 5 30
+
+# OUT -> Cloud (QoS1)
+topic dryer/+/telemetry out 1 "" ""
+topic dryer/+/state     out 1 "" ""
+topic dryer/+/ack       out 1 "" ""
+topic dryer/+/alarm     out 1 "" ""
+
+# IN <- Cloud (cmd)
+topic dryer/+/cmd       in  1 "" ""
